@@ -119,6 +119,121 @@ flowchart LR
 
 ---
 
+## 🔎 Celo features — in depth
+
+### Mobile login and session management
+
+- `raze celo login` stores a session at `~/.raze/celo-session.json` with fields:
+
+```json
+{
+  "phone": "+14155551234",
+  "network": "sepolia",
+  "address": "0xABCDEF..." ,
+  "loggedInAt": "2025-10-26T12:34:56.789Z"
+}
+```
+
+- Address resolution tries CIP-8 registry (several identifier candidates: `+NNN`, `tel:+NNN`, `phone:+NNN`). If not found, you can manually provide an address.
+- The interactive menu hides “login” and shows `profile`/`logout` whenever a session exists.
+
+Common operations:
+
+```bash
+# Login with phone; optional on-chain address resolution
+raze celo login
+
+# Show saved session
+raze celo profile
+
+# Remove session
+raze celo logout
+```
+
+### Natural-language actions (NLP)
+
+Supported intents include balance, send, swap, and estimate. When MCP is running, requests route through HTTP chain endpoints; otherwise, balance queries use the local provider, and sends require a local `PRIVATE_KEY`.
+
+Examples:
+
+```bash
+# Check a balance
+raze celo nlp --prompt "check balance 0x0000000000000000000000000000000000000000"
+
+# Send CELO
+raze celo nlp --prompt "send 0.1 CELO to 0x1234..."
+
+# Swap CELO to cUSD (via MCP route)
+raze celo nlp --prompt "swap 5 celo to cusd with 1% slippage"
+
+# Estimate gas for an action
+raze celo nlp --prompt "estimate gas for transferring 1 cUSD to 0x1234..."
+```
+
+### Identity lookup and metadata
+
+`raze celo identity --address 0x...` returns:
+
+- Account type (EOA vs contract), contract name/symbol (if known)
+- CELO and cStable balances (cUSD/cEUR), plus more with `--extended`
+- Optional CIP-8 metadata when `--metadata` is provided (fields like name, website, avatar, socials)
+
+```bash
+raze celo identity --address 0xYourAddress --metadata --extended --network sepolia
+```
+
+### Transaction logs with explorer fallback
+
+`raze celo logs --address 0x...` first queries the explorer API. If results are unavailable, it scans recent blocks via JSON-RPC using polite delays and correct hex formatting.
+
+```bash
+# Last 25 transactions on sepolia (default network)
+raze celo logs --address 0xYourAddress --limit 25
+
+# Scan deeper (up to 10k recent blocks)
+raze celo logs --address 0xYourAddress --blocks 10000 --limit 50 --network mainnet
+```
+
+### Network analytics and stable rates
+
+- `raze celo analytics` shows latest block, gas price, base fee, and average block time; `--watch` uses websockets when available or falls back to polling.
+- `raze celo rates` prints cStable rates (source noted in output).
+
+```bash
+raze celo analytics --watch --network sepolia
+raze celo rates
+```
+
+### Scaffolding dApps and contracts
+
+`raze celo scaffold` generates either:
+
+- A Hardhat project with sample contracts (NFT Drop, Microfinance) and deploy scripts
+- A React mini dApp template (Celo wallet connect ready)
+
+```bash
+# Hardhat with NFT Drop
+raze celo scaffold --name my-nft --template nft-drop --network sepolia
+
+# React mini dApp
+raze celo scaffold --name celo-app --template celo-app --network sepolia
+```
+
+### Provider and network configuration
+
+- Providers are created via URL only to avoid “network changed” errors. Analytics can use websockets or polling.
+- Default network for `celo` commands is `mainnet` unless specified; some actions (like logs) may default to `sepolia` where safer for testing and speed.
+
+Environment variables (optional overrides):
+
+| Variable | Purpose |
+| --- | --- |
+| `CELO_RPC_URL` | Override mainnet RPC URL |
+| `CELO_SEPOLIA_RPC_URL` | Override sepolia RPC URL |
+| `PRIVATE_KEY` | Enable local wallet operations (sends) |
+
+---
+
 An intelligent, modular **Web3 developer command-line assistant** that revolutionizes blockchain development:
 
 - 🤖 **AI-Powered Smart Contract Generation**: Natural language → Complete DeFi protocols, NFT collections, DAOs
