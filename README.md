@@ -37,12 +37,12 @@ The AI assistant can read, write, and edit files through an MCP server, then cal
 Flow (high-level):
 
 ```mermaid
-flowchart LR
+graph LR
   U[User prompt] --> P[NLP parse]
   P -->|file change| F[MCP file tools]
   P -->|celo action| R{MCP HTTP alive?}
-  R -->|yes| C[/MCP chain endpoints/]
-  R -->|no| L[Local provider (read-only or PK)]
+  R -->|yes| C[MCP chain endpoints]
+  R -->|no| L[Local provider read only or PK]
   F --> O[Files updated]
   C --> O
   L --> O
@@ -70,19 +70,29 @@ Environment variables:
 Deployment pipeline:
 
 ```mermaid
-flowchart TD
-  A[Detect project type] --> B[Build output dir]
-  B --> C{Web3.Storage available?}
-  C -->|yes| D[client.put(directory)]
-  C -->|no| E{Local IPFS available?}
+graph TD
+  A[Detect project type] --> B[Build output directory]
+  B --> C{Web3.Storage available}
+  C -->|yes| D[Put directory via client]
+  C -->|no| E{Local IPFS available}
   E -->|yes| F[ipfs add -r]
-  E -->|no| G{Pinata creds?}
-  G -->|yes| H[pinFromFS or multipart curl]
-  G -->|no| X[Prompt for credentials]
-  D --> I[CID -> gateway URLs]
+  E -->|no| G{Pinata credentials}
+  G -->|yes| H[Pin directory (SDK or curl)]
+  G -->|no| X[Ask for credentials]
+  D --> I[CID and gateway URLs]
   F --> I
   H --> I
 ```
+
+#### Celo integration details
+
+- Sessions: `~/.raze/celo-session.json` stores `{ phone, network, address?, loggedInAt }`. Login resolves phone → address via CIP-8 if possible; otherwise you can enter an address manually. The menu hides “login” when a session exists and shows `profile`/`logout`.
+- Identity: `raze celo identity` queries on-chain data and optionally fetches CIP-8 metadata (name, avatar, socials) and scans extra token balances.
+- Logs: `raze celo logs` first tries the explorer API; if unavailable, it scans recent blocks via JSON-RPC using polite delays and proper hex formatting.
+- NLP: `raze celo nlp` parses prompts like “send 0.1 CELO to 0x…” and routes to MCP chain endpoints when available; otherwise it uses a local provider for read-only operations, or a local wallet if `PRIVATE_KEY` is set for sends.
+- Providers: Ethers providers are initialized with URL-only to avoid network mismatch errors; WebSocket or polling is used for analytics.
+
+Best practices and fallbacks are designed to give you a smooth path from dev to demo to production on Celo.
 
 Conceptual breakdown (illustrative):
 
