@@ -15,7 +15,7 @@ export default function registerAi(program) {
     .argument("[prompt...]", "One-shot prompt (if omitted, enters chat mode)")
     .option(
       "--provider <p>",
-      "LLM provider: openai|gemini",
+      "LLM provider: openai|gemini|celo (alias of gemini)",
       process.env.OPENAI_API_KEY ? "openai" : "gemini"
     )
     .option(

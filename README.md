@@ -25,14 +25,131 @@ Raze CLI now ships with first-class Celo tooling and AI-assisted flows that make
 | `raze celo scaffold` | Create Celo dApp scaffold (Hardhat or React mini dApp) | Includes sample contracts |
 | `raze celo nlp` | Natural-language intent (balance/send/swap/estimate) | Routes to MCP or local provider |
 
-### AI + MCP for code edits and chain helpers
+### AI + MCP — detailed workflow, commands, and security
 
-The AI assistant can read, write, and edit files through an MCP server, then call chain helpers to preview/estimate or submit actions.
+Raze's AI integration uses the Model Context Protocol (MCP) to let an LLM safely inspect and modify your project and call Celo chain helpers (balance, read-only contract calls, gas estimates). Below is a step-by-step guide to how it works, the JSON plan the AI returns, the exact MCP endpoints used, and practical examples — including the canonical command:
 
-| Area | Primary | Fallbacks |
+`raze ai --provider celo`
+
+This section is intentionally detailed so you (or other developers) can audit, reproduce, or extend the behavior.
+
+1) High-level flow (what happens when you run `raze ai`)
+
+- The CLI prompts you (or accepts a one-shot prompt). Example:
+
+  raze ai --provider celo --port 5005 "add CLI help for celo login"
+
+- The CLI builds a context package (optionally including a truncated copy of the last edited file) and sends a structured prompt to the configured LLM.
+- The LLM MUST reply with a JSON plan describing a series of atomic actions (write_file, edit_file, read_file, list_directory). The CLI parses that JSON and shows a preview to the user.
+- When confirmed (or when `--auto` is set), the CLI applies actions by calling the MCP HTTP endpoints (or the stdio MCP transport) implemented by the local stub/server. Chain-related actions are routed to MCP chain helpers.
+
+2) The JSON plan schema (what the AI returns)
+
+The assistant is instructed to return only JSON. A minimal example:
+
+```json
+{
+  "actions": [
+    {"action":"read_file","path":"./package.json"},
+    {"action":"edit_file","path":"./README.md","find":"Old text","replace":"New text"},
+    {"action":"write_file","path":"./commands/celo.extra.js","content":"// new helper"}
+  ],
+  "primaryFile":"./README.md"
+}
+```
+
+Action semantics:
+- write_file: create or replace a file. Applied via POST /write_file body { path, content }.
+- edit_file: CLI will fetch current content (GET /read_file?path=...) then perform a safe string or regex replacement and write back.
+- read_file: read a file for inspection (GET /read_file?path=...). Output is shown in the terminal but not persisted.
+- list_directory: list files (GET /list_directory?path=...).
+
+3) MCP HTTP endpoints used by the CLI (mapping actions → endpoints)
+
+| JSON action | MCP HTTP endpoint | Notes |
 | --- | --- | --- |
-| File ops | MCP tools: `read_file`, `write_file`, `list_directory` | N/A |
-| Chain helpers | MCP HTTP endpoints (`/chain/*`) | Local provider (read-only balance) |
+| read_file | GET /read_file?path=... | Returns { success, path, content }
+| write_file | POST /write_file { path, content } | Creates directories as needed
+| list_directory | GET /list_directory?path=... | Returns item list JSON
+| get_account | GET /get_account?address=... | Native balance (CELO) via RPC
+| get_token_balance | GET /get_token_balance?address=...&token=... | ERC20 via eth_call
+| call_contract_function | POST /call_contract_function { to, data, from? } | Read-only eth_call
+| estimate_transaction | POST /estimate_transaction { from,to,value,data } | eth_estimateGas result
+
+4) Example end-to-end interaction (what you'll see)
+
+- You run:
+
+  raze ai --provider celo --port 5005 "Add a short usage example for raze celo login to README"
+
+- CLI sends a prompt to the LLM. LLM responds with JSON plan (example truncated):
+
+```json
+{
+  "actions": [
+    {"action":"read_file","path":"./README.md"},
+    {"action":"edit_file","path":"./README.md","find":"### Celo command quick reference","replace":"### Celo command quick reference\n\n**Usage:**..."}
+  ],
+  "primaryFile":"./README.md"
+}
+```
+
+- CLI shows a preview list of actions and asks `Apply 2 change(s)?` (unless `--auto`). If you confirm, the CLI calls the MCP endpoints to apply the changes and prints the active file (the `primaryFile`).
+
+5) Important CLI flags and what they do
+
+- `--provider <provider>`: choose the LLM backend. Use `--provider celo` (alias for Gemini) for Celo-friendly defaults. Example: `raze ai --provider celo --port 5005`.
+- `--model <model>`: select the model id (e.g., `gemini-2.5-flash`, `gpt-4o-mini`). Keep temperature low for deterministic edits.
+- `--port <port>`: MCP HTTP stub port (defaults to 5005).
+- `--auto`: apply the AI plan without prompting for confirmation.
+- `--dry-run`: show the plan and do not perform any writes.
+
+6) Auto-start behavior & health checks
+
+- If the CLI cannot reach MCP on the requested port it will attempt a safe auto-start of the local stub (`mcp-server.js`) in the background and wait a short period for `/health` to return.
+- If startup fails, the CLI prints a helpful hint and aborts (it will not apply file changes without MCP available).
+
+7) Security and safety considerations
+
+- The MCP stub included with Raze is conservative by design: file writes are limited to paths under the current working directory (the CLI resolves and restricts paths) and the execute endpoint in the HTTP stub is a no-op echo for safety unless explicitly extended.
+- Timeouts and sandboxing: all tool operations have execution time limits and buffer caps to avoid runaway processes.
+- Audit trail: operations performed through MCP are logged (timestamps + tool + arguments). Keep your local logs if you need an audit of AI-driven changes.
+- User confirmation is required by default before destructive edits. Use `--auto` only in CI or when you fully trust the model + prompt.
+
+8) Troubleshooting & tips
+
+- If the AI returns invalid JSON: the CLI will show the raw LLM output. Re-run with a clearer prompt or use `--model` to pick a more deterministic model.
+- If the MCP stub cannot reach the configured CELO RPC: set `CELO_RPC_URL` to a healthy RPC provider or run a local node.
+- To preserve context across turns, the CLI tracks `state.lastFile` — many follow-up prompts will include a truncated copy of that file so you can ask the model to make incremental edits.
+
+9) Advanced: How to compose reliable prompts for edits
+
+- Be explicit about the path and the change type. E.g.:
+
+  "Update `README.md` to add a one-line example under 'Celo command quick reference' showing: `raze celo login`"
+
+- Ask for small, atomic changes rather than sweeping rewrites. The assistant prefers `edit_file` for small diffs and `write_file` for new files.
+
+10) Example: full local debug run (no network required)
+
+```bash
+# Start MCP locally
+raze mcp start --port 5005
+
+# Run one-shot edit and preview only
+raze ai --provider celo --port 5005 --dry-run "Add a short example line to Celo quick reference"
+
+# If satisfied, run with auto apply
+raze ai --provider celo --port 5005 --auto "Apply the change from the previous plan"
+```
+
+These details should make it straightforward to audit the AI-driven workflow and know exactly which MCP endpoints are used for which actions. The canonical Celo-focused invocation is:
+
+```bash
+raze ai --provider celo --port 5005 "<your prompt here>"
+```
+
+If you'd like, I can add a short example showing the exact HTTP requests the CLI issues for a `read_file` + `edit_file` sequence (curl examples) and a sample log file format. Let me know which you prefer.
 
 Flow (high-level):
 
@@ -47,6 +164,66 @@ graph LR
   C --> O
   L --> O
 ```
+
+#### Celo MCP setup and AI usage (step-by-step)
+
+1) Prerequisites
+
+- Node.js 18+
+- Optional: set `CELO_RPC_URL` (defaults to Forno if unset)
+- Default MCP port is 5005 (override with `--port`)
+
+2) Start MCP for Celo
+
+```bash
+# Start the MCP stub (HTTP + stdio)
+raze mcp start --port 5005
+
+# Or run directly
+node mcp-server.js --port 5005
+```
+
+3) Verify health and tools
+
+```bash
+raze mcp status      # should report running on http://localhost:5005
+```
+
+You can also open http://localhost:5005/health and http://localhost:5005/tools in a browser.
+
+4) Use AI to edit code via MCP
+
+```bash
+# One-shot prompt
+raze ai --provider celo --port 5005 "create a README section for Celo login and identity"
+
+# Chat mode (type 'exit' to quit)
+raze ai --provider celo --port 5005
+```
+
+What happens:
+
+- The AI returns a JSON plan of file ops (write/edit/read/list)
+- The CLI applies those via MCP HTTP endpoints (/read_file, /write_file, /list_directory)
+- You can preview changes, auto-apply with `--auto`, or plan-only with `--dry-run`
+
+5) Celo chain helpers exposed by MCP
+
+| Endpoint | Purpose |
+| --- | --- |
+| `/health` | MCP/CELO_RPC status |
+| `/tools` | List of available tools |
+| `/get_account` | Native balance for an address |
+| `/get_token_balance` | ERC-20 token balance via eth_call |
+| `/call_contract_function` | Read-only eth_call to contracts |
+| `/estimate_transaction` | Gas estimate for a transaction |
+| `/read_file` `/write_file` `/list_directory` | Filesystem helpers used by `raze ai` |
+
+Tips:
+
+- If MCP isn’t running, `raze ai` will try to auto-start it and wait briefly.
+- Use `--auto` to apply AI changes without prompting; `--dry-run` to preview only.
+- `--model` selects the LLM variant; `--provider celo` uses the Gemini backend preset.
 
 ### Frontend build + IPFS deploy (with smart fallbacks)
 
