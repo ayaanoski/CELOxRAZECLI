@@ -1,5 +1,114 @@
 # Raze CLI - The AI-Powered Web3 Development Toolkit
 
+## 🟡 Raze x Celo — Deep Integration Overview
+
+Raze CLI now ships with first-class Celo tooling and AI-assisted flows that make building on Celo fast, friendly, and production-ready.
+
+- Natural-language Celo actions (balance, send, swap, estimate)
+- Phone-based login session (store phone → session; optional on-chain address resolution) with profile/logout
+- Identity lookup with CIP-8 metadata, token scanning, and explorer/RPC backed transaction logs
+- One-command frontend build and IPFS deployment with smart fallbacks (Web3.Storage → local IPFS → Pinata)
+- Scaffolds for Celo dApps and example contracts (NFT Drop, Microfinance), plus analytics and stable rates
+
+### Celo command quick reference
+
+| Command | What it does | Notes |
+| --- | --- | --- |
+| `raze celo` | Interactive menu; shows Profile/Logout if already logged-in | Detects `~/.raze/celo-session.json` |
+| `raze celo login` | Login with phone number; optionally resolve wallet via CIP-8 | Saves session `{ phone, network, address?, loggedInAt }` |
+| `raze celo profile` | Print current session | Shows phone/network/address |
+| `raze celo logout` | Remove session file | Clears login state |
+| `raze celo identity --address 0x...` | Identity + balances; optional CIP-8 metadata and token scan | Flags: `--metadata`, `--extended` |
+| `raze celo logs --address 0x...` | Transaction history via explorer; RPC scan fallback | Flags: `--limit`, `--blocks`, `--network` |
+| `raze celo rates` | cStable rates | Data source annotated in output |
+| `raze celo analytics` | Live network analytics (block, gas, base fee) | `--watch` uses websockets/polling |
+| `raze celo scaffold` | Create Celo dApp scaffold (Hardhat or React mini dApp) | Includes sample contracts |
+| `raze celo nlp` | Natural-language intent (balance/send/swap/estimate) | Routes to MCP or local provider |
+
+### AI + MCP for code edits and chain helpers
+
+The AI assistant can read, write, and edit files through an MCP server, then call chain helpers to preview/estimate or submit actions.
+
+| Area | Primary | Fallbacks |
+| --- | --- | --- |
+| File ops | MCP tools: `read_file`, `write_file`, `list_directory` | N/A |
+| Chain helpers | MCP HTTP endpoints (`/chain/*`) | Local provider (read-only balance) |
+
+Flow (high-level):
+
+```mermaid
+flowchart LR
+  U[User prompt] --> P[NLP parse]
+  P -->|file change| F[MCP file tools]
+  P -->|celo action| R{MCP HTTP alive?}
+  R -->|yes| C[/MCP chain endpoints/]
+  R -->|no| L[Local provider (read-only or PK)]
+  F --> O[Files updated]
+  C --> O
+  L --> O
+```
+
+### Frontend build + IPFS deploy (with smart fallbacks)
+
+Use `raze frontend` to build your app and publish to IPFS. We upload a directory (not a tarball) so gateways render `index.html`.
+
+Supported project types: `html`, `react`, `vite`, `next`
+
+| Step | Primary | Fallback 1 | Fallback 2 |
+| --- | --- | --- | --- |
+| Build | Framework-specific builder | — | — |
+| Upload | Web3.Storage client (put directory) | Local `ipfs add -r -Q` | Pinata (SDK or multipart curl, wrapWithDirectory) |
+
+Environment variables:
+
+| Name | Purpose |
+| --- | --- |
+| `WEB3_STORAGE_API_KEY` | Primary IPFS pinning via Web3.Storage |
+| `PINATA_JWT` / `PINATA_API_KEY` + `PINATA_API_SECRET` | Pinata fallback |
+| `IPFS_PATH` | Use a local IPFS node if available |
+
+Deployment pipeline:
+
+```mermaid
+flowchart TD
+  A[Detect project type] --> B[Build output dir]
+  B --> C{Web3.Storage available?}
+  C -->|yes| D[client.put(directory)]
+  C -->|no| E{Local IPFS available?}
+  E -->|yes| F[ipfs add -r]
+  E -->|no| G{Pinata creds?}
+  G -->|yes| H[pinFromFS or multipart curl]
+  G -->|no| X[Prompt for credentials]
+  D --> I[CID -> gateway URLs]
+  F --> I
+  H --> I
+```
+
+Conceptual breakdown (illustrative):
+
+```mermaid
+pie title Upload strategy usage
+  "Web3.Storage" : 70
+  "Local IPFS" : 20
+  "Pinata" : 10
+```
+
+### Celo NLP router (conceptual)
+
+```mermaid
+flowchart LR
+  Q["check balance 0x..."] --> N[NLP fallback/parse]
+  N --> A{Action}
+  A -->|balance| B[identifyAddress + balances]
+  A -->|send| S[send via MCP or wallet]
+  A -->|swap| W[quote + route via MCP]
+  A -->|estimate| E[gas estimate]
+```
+
+> Tip: If MCP is unreachable, balance is served via local provider. Send/swap/estimate require MCP or a configured local wallet (`PRIVATE_KEY`).
+
+---
+
 An intelligent, modular **Web3 developer command-line assistant** that revolutionizes blockchain development:
 
 - 🤖 **AI-Powered Smart Contract Generation**: Natural language → Complete DeFi protocols, NFT collections, DAOs
