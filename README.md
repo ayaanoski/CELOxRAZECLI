@@ -4,6 +4,8 @@
 
 Raze CLI now ships with first-class Celo tooling and AI-assisted flows that make building on Celo fast, friendly, and production-ready.
 
+<img width="1126" height="815" alt="Screenshot 2025-10-26 at 12 19 23 PM" src="https://github.com/user-attachments/assets/250de223-d746-49ba-860f-ccddd2b5fbdb" />
+
 - Natural-language Celo actions (balance, send, swap, estimate)
 - Phone-based login session (store phone → session; optional on-chain address resolution) with profile/logout
 - Identity lookup with CIP-8 metadata, token scanning, and explorer/RPC backed transaction logs
